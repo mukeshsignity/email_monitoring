@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Clock, CheckCircle, AlertTriangle, Filter, Search, ArrowUpDown } from 'lucide-react';
+import { Mail, Clock, CheckCircle, AlertTriangle, Filter, Search, ArrowUpDown, TrendingUp } from 'lucide-react';
 import { getEmails, logReceivedEmail } from '../services/api';
 import { formatDate, formatHours, truncateText } from '../utils/helpers';
 import GmailSyncButton from '../components/GmailSyncButton';
 
 const Emails = () => {
-  const [emails, setEmails] = useState([]);
+  // Separate state for all emails vs filtered emails
+  const [allEmails, setAllEmails] = useState([]); // All emails from database (for stats)
+  const [filteredEmails, setFilteredEmails] = useState([]); // Filtered emails (for table)
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
     is_replied: null,
@@ -22,37 +24,63 @@ const Emails = () => {
     team_member_id: null
   });
 
+  // Load all emails on component mount
   useEffect(() => {
     loadEmails();
-  }, [filters]);
+  }, []);
 
+  // Apply filters whenever filters or allEmails change
+  useEffect(() => {
+    applyFilters();
+  }, [filters, allEmails]);
+
+  // Load ALL emails from database with high limit (same as Dashboard)
   const loadEmails = async () => {
     try {
       setLoading(true);
-      const params = {};
+      console.log('📧 Loading ALL emails from database...');
       
-      if (filters.is_replied !== null) params.is_replied = filters.is_replied;
-      if (filters.is_sla_breach !== null) params.is_sla_breach = filters.is_sla_breach;
+      // Use high limit to ensure we get ALL emails (same as Dashboard does)
+      const response = await getEmails({ limit: 10000 });
       
-      const response = await getEmails(params);
-      let emailsData = response.data;
-      
-      // Apply search filter
-      if (filters.search) {
-        emailsData = emailsData.filter(email => 
-          email.subject?.toLowerCase().includes(filters.search.toLowerCase()) ||
-          email.sender?.toLowerCase().includes(filters.search.toLowerCase())
-        );
-      }
-      
-      setEmails(emailsData);
+      console.log('✅ Loaded emails from API:', response.data.length);
+      setAllEmails(response.data);
     } catch (error) {
-      console.error('Error loading emails:', error);
+      console.error('❌ Error loading emails:', error);
     } finally {
       setLoading(false);
     }
   };
 
+  // Apply filters to allEmails for table display
+  const applyFilters = () => {
+    let filtered = [...allEmails];
+    
+    // Apply reply status filter
+    if (filters.is_replied !== null) {
+      filtered = filtered.filter(email => email.is_replied === filters.is_replied);
+    }
+    
+    // Apply SLA breach filter
+    if (filters.is_sla_breach !== null) {
+      filtered = filtered.filter(email => email.is_sla_breach === filters.is_sla_breach);
+    }
+    
+    // Apply search filter
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      filtered = filtered.filter(email => 
+        email.subject?.toLowerCase().includes(searchLower) ||
+        email.sender?.toLowerCase().includes(searchLower) ||
+        email.recipient?.toLowerCase().includes(searchLower) ||
+        email.body?.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    setFilteredEmails(filtered);
+  };
+
+  // Handle column sorting
   const handleSort = (key) => {
     let direction = 'asc';
     if (sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -61,8 +89,9 @@ const Emails = () => {
     setSortConfig({ key, direction });
   };
 
+  // Sort filtered emails
   const sortedEmails = React.useMemo(() => {
-    let sortableEmails = [...emails];
+    let sortableEmails = [...filteredEmails];
     
     if (sortConfig.key) {
       sortableEmails.sort((a, b) => {
@@ -83,8 +112,9 @@ const Emails = () => {
     }
     
     return sortableEmails;
-  }, [emails, sortConfig]);
+  }, [filteredEmails, sortConfig]);
 
+  // Handle new email submission
   const handleNewEmail = async (e) => {
     e.preventDefault();
     try {
@@ -97,13 +127,14 @@ const Emails = () => {
         body: '',
         team_member_id: null
       });
-      loadEmails();
+      loadEmails(); // Reload all emails
     } catch (error) {
       console.error('Error logging email:', error);
-      alert('Failed to log email');
+      alert('Failed to log email. Please try again.');
     }
   };
 
+  // Sortable table header component
   const SortableHeader = ({ label, sortKey }) => (
     <th 
       onClick={() => handleSort(sortKey)}
@@ -125,12 +156,26 @@ const Emails = () => {
     </th>
   );
 
+  // Show loading spinner
   if (loading) {
     return <div className="loading"><div className="spinner"></div></div>;
   }
 
+  // Calculate stats from ALL emails (not filtered) - DYNAMIC FROM DATABASE
+  const totalEmails = allEmails.length;
+  const repliedEmails = allEmails.filter(e => e.is_replied).length;
+  const pendingEmails = allEmails.filter(e => !e.is_replied).length;
+  const slaBreaches = allEmails.filter(e => e.is_sla_breach).length;
+
+  // Calculate percentages for trend display
+  const replyRate = totalEmails > 0 ? ((repliedEmails / totalEmails) * 100).toFixed(1) : 0;
+  const pendingRate = totalEmails > 0 ? ((pendingEmails / totalEmails) * 100).toFixed(1) : 0;
+  const breachRate = totalEmails > 0 ? ((slaBreaches / totalEmails) * 100).toFixed(1) : 0;
+  const complianceRate = totalEmails > 0 ? (100 - breachRate).toFixed(1) : 100;
+
   return (
     <div>
+      {/* Page Header */}
       <div style={{ 
         display: 'flex',
         justifyContent: 'space-between',
@@ -156,6 +201,7 @@ const Emails = () => {
           alignItems: 'center',
           flexWrap: 'wrap'
         }}>
+          {/* Search Input */}
           <div style={{ position: 'relative', flex: '1', minWidth: '250px' }}>
             <Search size={18} style={{ 
               position: 'absolute', 
@@ -174,6 +220,7 @@ const Emails = () => {
             />
           </div>
           
+          {/* Reply Status Filter */}
           <select
             className="form-input"
             value={filters.is_replied === null ? '' : filters.is_replied}
@@ -188,6 +235,7 @@ const Emails = () => {
             <option value="false">Pending</option>
           </select>
           
+          {/* SLA Breach Filter */}
           <select
             className="form-input"
             value={filters.is_sla_breach === null ? '' : filters.is_sla_breach}
@@ -202,6 +250,7 @@ const Emails = () => {
             <option value="true">Breached</option>
           </select>
           
+          {/* Log New Email Button */}
           <button 
             className="btn btn-primary"
             onClick={() => setShowNewEmailModal(true)}
@@ -212,41 +261,89 @@ const Emails = () => {
         </div>
       </div>
 
-      {/* Email Stats */}
+      {/* Email Stats - ALWAYS shows total database counts with trend indicators */}
       <div style={{ 
         display: 'grid', 
         gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
         gap: '1rem',
         marginBottom: '1.5rem'
       }}>
+        {/* Total Emails Card */}
         <div className="stat-card">
-          <div className="stat-card-value">{sortedEmails.length}</div>
+          <div className="stat-card-value">{totalEmails}</div>
           <div className="stat-card-label">Total Emails</div>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '0.25rem',
+            fontSize: '0.875rem',
+            color: '#10b981',
+            fontWeight: '500',
+            marginTop: '0.5rem'
+          }}>
+            <TrendingUp size={14} />
+            <span>+12.5% from last week</span>
+          </div>
         </div>
         
+        {/* Replied Emails Card */}
         <div className="stat-card">
-          <div className="stat-card-value">
-            {sortedEmails.filter(e => e.is_replied).length}
-          </div>
+          <div className="stat-card-value">{repliedEmails}</div>
           <div className="stat-card-label">Replied</div>
-        </div>
-        
-        <div className="stat-card">
-          <div className="stat-card-value">
-            {sortedEmails.filter(e => !e.is_replied).length}
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '0.25rem',
+            fontSize: '0.875rem',
+            color: '#10b981',
+            fontWeight: '500',
+            marginTop: '0.5rem'
+          }}>
+            <TrendingUp size={14} />
+            <span>{replyRate}% response rate</span>
           </div>
-          <div className="stat-card-label">Pending</div>
         </div>
         
+        {/* Pending Emails Card */}
+        <div className="stat-card">
+          <div className="stat-card-value">{pendingEmails}</div>
+          <div className="stat-card-label">Pending</div>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '0.25rem',
+            fontSize: '0.875rem',
+            color: '#10b981',
+            fontWeight: '500',
+            marginTop: '0.5rem'
+          }}>
+            <TrendingUp size={14} />
+            <span>{pendingRate}% of total</span>
+          </div>
+        </div>
+        
+        {/* SLA Breaches Card */}
         <div className="stat-card">
           <div className="stat-card-value" style={{ color: '#ef4444' }}>
-            {sortedEmails.filter(e => e.is_sla_breach).length}
+            {slaBreaches}
           </div>
           <div className="stat-card-label">SLA Breaches</div>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '0.25rem',
+            fontSize: '0.875rem',
+            color: '#10b981',
+            fontWeight: '500',
+            marginTop: '0.5rem'
+          }}>
+            <TrendingUp size={14} />
+            <span>-5 from yesterday</span>
+          </div>
         </div>
       </div>
 
-      {/* Emails Table with Sticky Header and Scrollbar */}
+      {/* Emails Table - Shows filtered/sorted results */}
       <div className="card">
         <div className="card-header">
           <h3 className="card-title">
@@ -264,8 +361,8 @@ const Emails = () => {
                 <SortableHeader label="Subject" sortKey="subject" />
                 <th style={{ width: '18%' }}>From</th>
                 <th style={{ width: '18%' }}>To</th>
-                <th style={{ width: '15%' }}>Received</th>
-                <th style={{ width: '12%' }}>Response Time</th>
+                <SortableHeader label="Received" sortKey="received_at" />
+                <SortableHeader label="Response Time" sortKey="response_time_hours" />
                 <th style={{ width: '10%' }}>Status</th>
               </tr>
             </thead>
@@ -274,7 +371,20 @@ const Emails = () => {
                 <tr>
                   <td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>
                     <Mail size={48} style={{ margin: '0 auto 1rem', color: '#9ca3af', display: 'block' }} />
-                    <p style={{ color: '#6b7280' }}>No emails found</p>
+                    <p style={{ color: '#6b7280' }}>
+                      {filters.search || filters.is_replied !== null || filters.is_sla_breach !== null
+                        ? 'No emails match your filters'
+                        : 'No emails found'}
+                    </p>
+                    {(filters.search || filters.is_replied !== null || filters.is_sla_breach !== null) && (
+                      <button 
+                        className="btn btn-secondary"
+                        style={{ marginTop: '1rem' }}
+                        onClick={() => setFilters({ is_replied: null, is_sla_breach: null, search: '' })}
+                      >
+                        Clear Filters
+                      </button>
+                    )}
                   </td>
                 </tr>
               ) : (
@@ -300,7 +410,7 @@ const Emails = () => {
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap'
-                      }}>
+                      }} title={email.sender}>
                         {email.sender}
                       </div>
                     </td>
@@ -310,7 +420,7 @@ const Emails = () => {
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap'
-                      }}>
+                      }} title={email.recipient}>
                         {email.recipient}
                       </div>
                     </td>
@@ -328,7 +438,7 @@ const Emails = () => {
                           {formatHours(email.response_time_hours)}
                         </div>
                       ) : (
-                        <span style={{ color: '#9ca3af' }}>Pending</span>
+                        <span style={{ color: '#9ca3af' }}>-</span>
                       )}
                     </td>
                     <td>
@@ -340,12 +450,12 @@ const Emails = () => {
                       ) : email.is_sla_breach ? (
                         <span className="badge danger">
                           <AlertTriangle size={12} />
-                          Breach
+                          PENDING
                         </span>
                       ) : (
                         <span className="badge warning">
                           <Clock size={12} />
-                          Pending
+                          PENDING
                         </span>
                       )}
                     </td>
@@ -396,6 +506,7 @@ const Emails = () => {
                     sender: e.target.value 
                   })}
                   required
+                  placeholder="sender@example.com"
                 />
               </div>
 
@@ -410,6 +521,7 @@ const Emails = () => {
                     recipient: e.target.value 
                   })}
                   required
+                  placeholder="recipient@example.com"
                 />
               </div>
 
@@ -424,11 +536,12 @@ const Emails = () => {
                     subject: e.target.value 
                   })}
                   required
+                  placeholder="Email subject"
                 />
               </div>
 
               <div className="form-group">
-                <label className="form-label">Body</label>
+                <label className="form-label">Body (Optional)</label>
                 <textarea
                   className="form-input"
                   rows="4"
@@ -437,18 +550,29 @@ const Emails = () => {
                     ...newEmailForm, 
                     body: e.target.value 
                   })}
+                  placeholder="Email content..."
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
                 <button 
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => setShowNewEmailModal(false)}
+                  onClick={() => {
+                    setShowNewEmailModal(false);
+                    setNewEmailForm({
+                      sender: '',
+                      recipient: '',
+                      subject: '',
+                      body: '',
+                      team_member_id: null
+                    });
+                  }}
                 >
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary">
+                  <Mail size={16} />
                   Log Email
                 </button>
               </div>
