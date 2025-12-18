@@ -1,13 +1,53 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+// ========== API BASE URL CONFIGURATION ==========
+// For Create React App, use process.env.REACT_APP_*
+const API_BASE_URL = process.env.REACT_APP_API_URL || 
+                     (process.env.NODE_ENV === 'development' 
+                       ? 'http://localhost:8000/api' 
+                       : 'https://signity-email-monitoring.onrender.com/api');
 
+console.log('🚀 API Base URL:', API_BASE_URL);
+console.log('🔧 Environment:', process.env.NODE_ENV);
+
+// Create axios instance with base configuration
 const api = axios.create({
-  baseURL: `${API_BASE_URL}/api`,  // Add /api prefix
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 30000, // 30 second timeout
 });
+
+// Add request interceptor for debugging
+api.interceptors.request.use(
+  (config) => {
+    console.log(`📤 ${config.method.toUpperCase()} ${config.url}`);
+    return config;
+  },
+  (error) => {
+    console.error('❌ Request error:', error);
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for error handling
+api.interceptors.response.use(
+  (response) => {
+    console.log(`✅ ${response.config.method.toUpperCase()} ${response.config.url} - ${response.status}`);
+    return response;
+  },
+  (error) => {
+    if (error.response) {
+      console.error(`❌ ${error.config.method.toUpperCase()} ${error.config.url} - ${error.response.status}:`, error.response.data);
+    } else if (error.request) {
+      console.error('❌ No response received:', error.request);
+    } else {
+      console.error('❌ Error:', error.message);
+    }
+    return Promise.reject(error);
+  }
+);
 
 // ========== DEPARTMENTS ==========
 export const getDepartments = () => api.get('/departments/');
@@ -25,6 +65,7 @@ export const deleteTeamMember = (id) => api.delete(`/team-members/${id}`);
 
 // ========== EMAILS ==========
 export const getEmails = (params) => api.get('/emails/', { params });
+export const getEmail = (id) => api.get(`/emails/${id}`);
 export const logReceivedEmail = (data) => api.post('/emails/receive/', data);
 export const logEmailReply = (data) => api.post('/emails/reply/', data);
 
@@ -60,6 +101,10 @@ export const getAutoSyncStatus = () => api.get('/auto-sync/status/');
 export const updateAutoSyncInterval = (intervalMinutes) => {
   return api.put('/auto-sync/interval/', null, { params: { interval_minutes: intervalMinutes } });
 };
+
+// ========== ADMIN ==========
+export const getAdminStats = () => api.get('/admin/database-stats');
+export const initSampleData = (secret) => api.post(`/admin/init-sample-data?secret=${secret}`);
 
 // ========== DASHBOARD (Aggregate Data) ==========
 export const getDashboardStats = async () => {
@@ -98,7 +143,8 @@ export const getDashboardStats = async () => {
         repliedEmails,
         avgResponseTime: parseFloat(avgResponseTime.toFixed(2)),
         slaBreaches,
-        complianceRate: parseFloat(complianceRate)
+        complianceRate: parseFloat(complianceRate),
+        departmentMetrics: deptMetrics
       }
     };
   } catch (error) {
@@ -131,7 +177,8 @@ export const getOverallMetrics = async () => {
         total_emails: emails.length,
         average_response_time: parseFloat(avgResponseTime.toFixed(2)),
         sla_breaches: slaBreaches,
-        sla_compliance_rate: parseFloat(complianceRate)
+        sla_compliance_rate: parseFloat(complianceRate),
+        department_metrics: deptMetricsRes.data
       }
     };
   } catch (error) {

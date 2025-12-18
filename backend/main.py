@@ -83,7 +83,18 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ⚠️ Update this in production to specific domains
+     allow_origins=[
+        # Local development
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:4173",
+        
+        # Production frontend on Render
+        "https://signity-email-monitoring-frontend.onrender.com",
+        
+        # Wildcard for any Render subdomain (optional, less secure)
+        # "https://*.onrender.com",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
