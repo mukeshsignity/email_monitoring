@@ -7,7 +7,7 @@ from api.routes import router
 from config.settings import settings
 from database.connection import init_db
 from services.auto_sync_service import auto_sync_service
-
+from api import admin
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -92,7 +92,7 @@ app.add_middleware(
 
 # Include API router
 app.include_router(router, prefix="/api", tags=["Email Monitoring"])
-
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 @app.get("/")
 async def root():
